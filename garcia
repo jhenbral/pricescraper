@@ -1,0 +1,135 @@
+import requests
+import pandas as pd
+
+
+categorias= [
+    "aromaterapia",
+    "bebe-e-mama",
+    "controlo-de-peso",
+    "cuidados-cabelo",
+    "cuidados-corpo",
+    "cuidados-pes-e-maos",
+    "cuidados-rosto",
+    "cuidados-intimos",
+    "higiene-oral",
+    "medicamentos",
+    "medidores-pressao-arterial",
+    "nebulizadores-e-camaras-expansoras",
+    "ortopedia",
+    "primeiros-socorros",
+    "protecao",
+    "repelentes",
+    "sexualidade",
+    "sistema-imunitario",
+    "suplementos-alimentares",
+    "testes-de-gravidez"
+]
+
+
+
+base_url = 'https://loja.farmaciagarcia.net/collections/'
+suffix_url = '?page='
+
+
+from bs4 import BeautifulSoup
+def extract_info_from_page(url):
+    response = requests.get(url)
+    html_content = response.text
+    soup = BeautifulSoup(html_content, 'html.parser')
+
+    #extract category name from base url so it is added as a column in the final file
+    categoria = url.split('/collections/')[-1].split('?')[0]
+
+
+    #table = soup.find('table')  # Adjust this based on your HTML structure
+
+    # Define CSS selectors based on the Power BI script
+    #product_selector = 'A + A'  # Replace this with the appropriate selector
+    #column1_selector = 'DIV + SPAN'  # Replace this with the appropriate selector
+    #column2_selector = '.button:nth-child(5)'  # Replace this with the appropriate selector
+    column3_selector = '.price:nth-child(1)'  # Replace this with the appropriate selector
+    #column4_selector = '.price:nth-child(1) *'  # Replace this with the appropriate selector
+    #column5_selector = '.button--ternary'  # Replace this with the appropriate selector
+
+    # Define CSS selector for product descriptions
+    #description_selector = '.product-item__title'
+
+    # Extract information using BeautifulSoup
+    #descriptions = [product.text.strip() for product in soup.select(description_selector)]
+    products = [product.text.strip() for product in soup.select(column3_selector)]
+    #print(len(products))
+
+    page_data=[]
+    # Print the product descriptions
+    product_items = soup.find_all('div', class_='product-item__info-inner')
+    for item in product_items:
+        # Extract title
+        title = item.find('a', class_='product-item__title').text.strip()
+
+         # Extract price
+        price_tag = item.find('span', class_='price')
+        price_text = price_tag.text.strip() if price_tag else "Price not found"
+
+        # Extract numerical part of the price
+        price = price_text.split('€')[-1].strip()  # Assumes the currency symbol is '€'
+         # Extract link
+        link = "https://loja.farmaciagarcia.net"+item.find('a', class_='product-item__title')['href'] if item.find('a', class_='product-item__title') else "Link not found"
+
+        # Extract CNP from the product page
+        cnp = extract_cnp_from_product_page(link)
+        page_data.append({"Categoria": categoria ,"Artigo": title, "Preço": price,"Link": link, "CNP": cnp})
+    return page_data
+
+# Function to extract CNP from the product page
+def extract_cnp_from_product_page(product_url):
+    response = requests.get(product_url)
+    soup = BeautifulSoup(response.text, 'html.parser')
+
+    # Extract CNP information
+    cnp_tag = soup.find('span', class_='product-meta__sku-number')
+    cnp = cnp_tag.text.strip() if cnp_tag else "CNP not found"
+
+    return cnp
+
+
+
+
+
+
+# List to store information from all pages
+all_data = []
+
+
+# Start with the first page
+
+
+for categoria in categorias:
+
+    current_page = 1
+    while True:
+         # Construct the URL for the current page
+        current_url = f"{base_url}{categoria}{suffix_url}{current_page}"
+
+        # Extract information from the current page
+        page_data = extract_info_from_page(current_url)
+
+        # Check if there are no more products
+        print(len(page_data))
+        if not page_data:
+            print("No more products. Exiting the loop.")
+            break
+
+        # Append information from the current page to the overall list
+        all_data.extend(page_data)
+
+        # Increment the page number for the next iteration
+        current_page += 1
+
+# Print the final result
+for entry in all_data:
+    print(f"Artigo: {entry['Artigo']}\nPreço: €{entry['Preço']}\n")
+# Create a pandas DataFrame from the list of dictionaries
+df = pd.DataFrame(all_data)
+
+# Export the DataFrame to an Excel file
+df.to_excel('output.xlsx', index=False)
