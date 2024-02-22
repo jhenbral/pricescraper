@@ -1,0 +1,90 @@
+import requests
+import pandas as pd
+
+from bs4 import BeautifulSoup
+
+
+base_url = 'https://farmaciasilva.pt/produtos?p='
+suffix_url = '?p='
+
+
+def extract_info_from_page(url):
+    response = requests.get(url)
+    html_content = response.text
+    soup = BeautifulSoup(html_content , 'html.parser')
+    # Find all product cards
+    product_cards = soup.find_all('div', class_='card')
+    # page_data=[]
+    data = []
+    #print(len(product_cards))
+    for card in product_cards:
+        description = card.select_one('.product-item-link').text.strip()
+        categories = card.select_one('.card-categories').text.strip()
+        price = card.select_one('.price').text.replace('€', '').strip()
+        linka = card.select_one('a.product.photo.product-item-photo')['href'] #to append to final table
+        print()
+        try:
+            #link1 = card.select_one('a:nth-child(1) + a')['href'] #to use as reference to grab each sku
+            link1=card.select_one('a.product-item-link').get('href')
+        except:
+            data.append(['None',description, price, linka,categories])
+            continue
+        # Access the individual link to get SKU
+        sku=extract_cnp_from_product_page(link1)
+        data.append([sku,description, price, linka,categories])
+    return data
+
+
+# Access the individual link to get SKU
+def extract_cnp_from_product_page(product_url):
+    product_response = requests.get(product_url)
+    product_html_content = product_response.text
+    product_soup = BeautifulSoup(product_html_content, 'html.parser')
+
+    # Extract SKU from the page
+    #sku_element = product_soup.select_one('form[data-role="tocart-form"]')['data-product-sku']
+    sku_element = product_soup.select_one('div.product.attribute.sku span.value')
+    #print(sku_element)
+    sku_number = sku_element.get_text(strip=True) if sku_element else 'N/A'  # Set 'N/A' if SKU not found
+
+
+    return sku_number
+
+
+# List to store information from all pages
+all_data = []
+current_page = 1
+while True:
+     # Construct the URL for the current page
+    current_url = f"{base_url}{current_page}"
+
+    # Extract information from the current page
+    page_data = extract_info_from_page(current_url)
+
+    # Check if there are no more products
+    #print(len(page_data))
+    if not page_data:
+        print("No more products. Exiting the loop.")
+        break
+
+    # Append information from the current page to the overall list
+    all_data.extend(page_data)
+
+    # Increment the page number for the next iteration
+    current_page += 1
+
+# Create a pandas DataFrame from the list of dictionaries
+df = pd.DataFrame(all_data, columns=['CNP', 'Description', 'Price', 'Link', 'Categories'])
+
+# Split 'Categories' into multiple columns based on the '|' character
+df_categories = df['Categories'].str.split('|', expand=True)
+
+# Concatenate the new columns with the original DataFrame
+df = pd.concat([df, df_categories], axis=1)
+
+# Drop the original 'Categories' column
+df.drop('Categories', axis=1, inplace=True)
+
+# Export the DataFrame to an Excel file
+df.to_excel('output_silva.xlsx', index=False)
+#print(df)
